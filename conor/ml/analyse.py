@@ -25,14 +25,17 @@ def main():
 
     filter = lambda df, company: df.loc[data['Company'] == company, :].drop('Company', 1).values
 
-    for company in companies:
+    results = np.empty(len(companies))
+
+    for idx, company in enumerate(companies):
         c_data = filter(data, company)
         c_classifier = filter(classifier, company)
         c_data_scaled = preprocessing.scale(c_data)
         c_classifier_scaled = preprocessing.scale(c_classifier)
 
-        support_vector_machine(c_data_scaled, c_classifier_scaled)
+        results[idx] = support_vector_machine(c_data_scaled, c_classifier_scaled)
 
+    print('Mean sum squared: {}'.format(results.mean()))
 
     # naive_bayes(data, classifier)
     # decision_tree(data, classifier)
@@ -59,7 +62,8 @@ def support_vector_machine(data, classifier):
     predictions = clf.predict(data)
 
     sq_error = ((classifier[:, 0] - predictions)**2).mean()
-    print(sq_error)
+    return sq_error
+
 
 if __name__ == '__main__':
     main()
