@@ -1,5 +1,7 @@
+import matplotlib.pyplot as plt
 import numpy as np
-from sklearn import preprocessing
+import pandas as pd
+from sklearn import svm, tree, preprocessing
 
 import loaders
 
@@ -12,28 +14,47 @@ def load_data_nick():
 
 
 def load_data_tom():
-    raw_data = loaders.load_train_tom()
-    classifier = raw_data[['AdjPrice', 'Company']]
-    data = raw_data.drop(['Sector', 'Industry'], axis=1)
-    return classifier, data
+    train_data = loaders.load_train_tom('../../data/train.csv')
+    test_data = loaders.load_train_tom('../../data/test.csv')
+
+    train_returns = calculate_returns(train_data['AdjPrice'].values)
+    train_data['Returns'] = pd.Series(train_returns, index=train_data.index)
+
+    test_returns = calculate_returns(test_data['AdjPrice'].values)
+    test_data['Returns'] = pd.Series(test_returns, index=test_data.index)
+
+    train_classifier = train_data[['Returns', 'Company']][1:]
+    train_dataset = train_data.drop(['Sector', 'Industry', 'AdjPrice'], axis=1)[1:]
+
+    test_classifier = test_data[['Returns', 'Company']][1:]
+    test_dataset = test_data.drop(['Sector', 'Industry', 'AdjPrice'], axis=1)[1:]
+
+    return train_classifier, train_dataset, test_classifier, test_dataset
 
 
 def main():
-    classifier, data = load_data_tom()
+    train_classifier, train_data, test_classifier, test_data = load_data_tom()
 
-    companies = set(data['Company'].values)
+    # companies = set(train_data['Company'].values)
+    companies = ['Alcoa Inc']
 
-    filter = lambda df, company: df.loc[data['Company'] == company, :].drop('Company', 1).values
+    filter = lambda df, company: df.loc[df['Company'] == company, :].drop('Company', 1).values
 
     results = np.empty(len(companies))
 
     for idx, company in enumerate(companies):
-        c_data = filter(data, company)
-        c_classifier = filter(classifier, company)
-        c_data_scaled = preprocessing.scale(c_data)
-        c_classifier_scaled = preprocessing.scale(c_classifier)
+        c_train_data = filter(train_data, company)
+        c_train_classifier = filter(train_classifier, company)
+        c_train_data_scaled = preprocessing.scale(c_train_data)
+        c_train_classifier_scaled = preprocessing.scale(c_train_classifier)
 
-        results[idx] = support_vector_machine(c_data_scaled, c_classifier_scaled)
+        c_test_data = filter(test_data, company)
+        c_test_classifier = filter(test_classifier, company)
+        c_test_data_scaled = preprocessing.scale(c_test_data)
+        c_test_classifier_scaled = preprocessing.scale(c_test_classifier)
+
+        results[idx] = analyse(svm.SVR(), c_train_data_scaled, c_test_data_scaled,
+                               c_train_classifier_scaled, c_test_classifier_scaled)
 
     print('Mean sum squared: {}'.format(results.mean()))
 
@@ -47,21 +68,34 @@ def main():
     # ada_boost(data, classifier)
 
 
-def normalize(data, sample):
-    normalized_data = np.array([(i-min(i))/(max(i)-min(i)) for i in data.T]).T
-    minmax = np.array([[min(i),max(i)] for i in data.T])
-    normalized_sample = [(sample[i]-minmax[i][0])/(minmax[i][1]-minmax[i][0])  for i in range(len(sample))]
-    return normalized_data, normalized_sample
+def lag(data, empty_term=0.):
+    lagged = np.roll(data, 1, axis=0)
+    lagged[0] = empty_term
+    return lagged
 
 
-def support_vector_machine(data, classifier):
-    from sklearn import svm
-    clf = svm.SVR()
-    clf.fit(data, classifier[:, 0])
+def calculate_returns(prices):
+    lagged_pnl = lag(prices)
+    returns = (prices - lagged_pnl) / lagged_pnl
 
-    predictions = clf.predict(data)
+    # All values prior to our position opening in pnl will have a
+    # value of inf. This is due to division by 0.0
+    returns[np.isinf(returns)] = 0.
+    # Additionally, any values of 0 / 0 will produce NaN
+    returns[np.isnan(returns)] = 0.
+    return returns
 
-    sq_error = ((classifier[:, 0] - predictions)**2).mean()
+
+def analyse(func, train_data, test_data, classifier, actual):
+    func.fit(train_data, classifier[:, 0])
+
+    predictions = func.predict(test_data)
+
+    plt.scatter(predictions, actual[:, 0])
+    plt.show()
+
+    sq_error = ((actual[:, 0] - predictions)**2).mean()
+
     return sq_error
 
 
